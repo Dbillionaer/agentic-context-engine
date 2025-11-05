@@ -249,6 +249,37 @@ class ReplayGenerator:
         self.responses = responses if responses is not None else {}
         self.default_response = default_response
 
+    def _extract_response_from_sample(self, sample: Any) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract response from sample object using multiple fallback strategies.
+
+        Args:
+            sample: Sample object (can be dataclass, dict, or other)
+
+        Returns:
+            Tuple of (response_text, source_name) or (None, None) if not found
+        """
+        # Try sample.metadata['response'] (Sample dataclass)
+        if hasattr(sample, 'metadata') and isinstance(sample.metadata, dict):
+            response = sample.metadata.get('response')
+            if response:
+                return response, "sample_metadata"
+
+        # Try sample['metadata']['response'] (nested dict)
+        if isinstance(sample, dict) and 'metadata' in sample:
+            if isinstance(sample['metadata'], dict):
+                response = sample['metadata'].get('response')
+                if response:
+                    return response, "sample_dict_metadata"
+
+        # Try sample['response'] (direct dict)
+        if isinstance(sample, dict):
+            response = sample.get('response')
+            if response:
+                return response, "sample_dict_direct"
+
+        return None, None
+
     @maybe_track(
         name="replay_generator_generate",
         tags=["ace-framework", "role", "replay-generator"],
@@ -280,57 +311,54 @@ class ReplayGenerator:
 
         Returns:
             GeneratorOutput with the replayed answer
+
+        Raises:
+            ValueError: If no response can be found and no default is set
         """
-        # Priority 1: Try to get response from sample object (if provided in kwargs)
+        # Resolution priority:
+        # 1. sample.metadata['response'] (preferred for Sample dataclass)
+        # 2. sample['metadata']['response'] (dict with nested metadata)
+        # 3. sample['response'] (dict with direct response)
+        # 4. responses dict lookup by question
+        # 5. default_response (fallback)
+
         final_answer = None
         response_source = None
 
+        # Priority 1-3: Extract from sample if provided
         if 'sample' in kwargs:
             sample = kwargs['sample']
+            final_answer, response_source = self._extract_response_from_sample(sample)
 
-            # Try sample.metadata['response'] (dataclass/object with metadata attribute)
-            if hasattr(sample, 'metadata') and isinstance(sample.metadata, dict):
-                final_answer = sample.metadata.get('response')
-                if final_answer:
-                    response_source = "sample_metadata"
-
-            # Try sample['metadata']['response'] (dict with metadata key)
-            if not final_answer and isinstance(sample, dict) and 'metadata' in sample:
-                if isinstance(sample['metadata'], dict):
-                    final_answer = sample['metadata'].get('response')
-                    if final_answer:
-                        response_source = "sample_dict_metadata"
-
-            # Try sample['response'] directly (dict with response at top level)
-            if not final_answer and isinstance(sample, dict):
-                final_answer = sample.get('response')
-                if final_answer:
-                    response_source = "sample_dict_direct"
-
-        # Priority 2: Look up in responses dict
-        question_found = question in self.responses
-        if not final_answer and question_found:
+        # Priority 4: Look up in responses dict
+        if not final_answer and question in self.responses:
             final_answer = self.responses[question]
             response_source = "responses_dict"
 
-        # Priority 3: Use default response
-        if not final_answer:
+        # Priority 5: Use default response
+        if not final_answer and self.default_response:
             final_answer = self.default_response
             response_source = "default_response"
 
+        # Validation: Ensure we have a response
+        if not final_answer:
+            raise ValueError(
+                f"ReplayGenerator could not find response for question: '{question[:100]}...'. "
+                f"Checked: sample={('sample' in kwargs)}, "
+                f"responses_dict={question in self.responses}, "
+                f"default_response={bool(self.default_response)}. "
+                "Ensure sample has 'response' field or provide default_response."
+            )
+
         # Create metadata for observability
-        if response_source == "sample_metadata":
-            reasoning = "[Replayed from sample metadata]"
-        elif response_source == "sample_dict_metadata":
-            reasoning = "[Replayed from sample dict metadata]"
-        elif response_source == "sample_dict_direct":
-            reasoning = "[Replayed from sample dict]"
-        elif response_source == "responses_dict":
-            reasoning = "[Replayed from responses dict]"
-        elif self.default_response:
-            reasoning = "[Replayed - using default response (no source found)]"
-        else:
-            reasoning = "[Replayed - no response found, empty response]"
+        reasoning_map = {
+            "sample_metadata": "[Replayed from sample.metadata]",
+            "sample_dict_metadata": "[Replayed from sample dict metadata]",
+            "sample_dict_direct": "[Replayed from sample dict]",
+            "responses_dict": "[Replayed from responses dict]",
+            "default_response": "[Replayed using default response]"
+        }
+        reasoning = reasoning_map.get(response_source, "[Replayed - source unknown]")
 
         # Return GeneratorOutput matching the interface
         return GeneratorOutput(
@@ -343,7 +371,7 @@ class ReplayGenerator:
                 "bullet_ids": [],
                 "replay_metadata": {
                     "response_source": response_source,
-                    "question_found_in_dict": question_found,
+                    "question_found_in_dict": question in self.responses,
                     "sample_provided": 'sample' in kwargs,
                     "total_responses_in_mapping": len(self.responses)
                 }

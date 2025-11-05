@@ -21,20 +21,30 @@ from .adaptation import (
     AdapterStepResult,
 )
 
-# Import observability components
-try:
-    from .observability import OpikIntegration
-    OBSERVABILITY_AVAILABLE = True
-except ImportError:
+# Import optional feature detection
+from .features import has_opik, has_litellm
+
+# Import observability components if available
+if has_opik():
+    try:
+        from .observability import OpikIntegration
+        OBSERVABILITY_AVAILABLE = True
+    except ImportError:
+        OpikIntegration = None
+        OBSERVABILITY_AVAILABLE = False
+else:
     OpikIntegration = None
     OBSERVABILITY_AVAILABLE = False
 
 # Import production LLM clients if available
-try:
-    from .llm_providers import LiteLLMClient
-
-    LITELLM_AVAILABLE = True
-except ImportError:
+if has_litellm():
+    try:
+        from .llm_providers import LiteLLMClient
+        LITELLM_AVAILABLE = True
+    except ImportError:
+        LiteLLMClient = None
+        LITELLM_AVAILABLE = False
+else:
     LiteLLMClient = None
     LITELLM_AVAILABLE = False
 

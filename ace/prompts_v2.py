@@ -1,6 +1,15 @@
 """
 State-of-the-art prompt templates for ACE roles - Version 2.0
 
+DEPRECATION WARNING: This module (prompts_v2) is superseded by prompts_v2_1.
+Please use prompts_v2_1.py for new projects, which includes:
+- MCP (Model Context Protocol) enhancements
+- Improved error handling and validation
+- Better structured reasoning templates
+- Enhanced meta-cognitive instructions
+
+For migration guide, see docs/PROMPTS.md
+
 These prompts incorporate best practices from production AI systems including:
 - Identity headers with metadata
 - Hierarchical organization with clear sections
@@ -14,8 +23,18 @@ These prompts incorporate best practices from production AI systems including:
 Based on patterns from GPT-5, Claude 3.5, and 80+ production prompts.
 """
 
+import warnings
 from datetime import datetime
 from typing import Dict, Any, Optional
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "prompts_v2 is deprecated and will be removed in a future version. "
+    "Please use prompts_v2_1 instead for enhanced performance and features. "
+    "See docs/PROMPTS.md for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 # ================================
 # GENERATOR PROMPT - VERSION 2.0
